@@ -364,17 +364,17 @@ function App() {
     [current]
   );
 
-  const filteredRecords = useMemo(() => {
-    const query = search.trim().toLowerCase();
+  // const filteredRecords = useMemo(() => {
+  //   const query = search.trim().toLowerCase();
 
-    if (!query) return allRecords;
+  //   if (!query) return allRecords;
 
-    return allRecords.filter((record) =>
-      Object.values(record).some((value) =>
-        String(value ?? "").toLowerCase().includes(query)
-      )
-    );
-  }, [allRecords, search]);
+  //   return allRecords.filter((record) =>
+  //     Object.values(record).some((value) =>
+  //       String(value ?? "").toLowerCase().includes(query)
+  //     )
+  //   );
+  // }, [allRecords, search]);
 
   const openDetails = (type, record) =>
     setSelected({ type, record });
@@ -558,7 +558,7 @@ function App() {
     ],
   };
 
-  const currentTabColumns = columnsByTab[activeTab];
+  // const currentTabColumns = columnsByTab[activeTab];
 
   const paymentColumns = [
     { key: "id", label: "Payment ID" },
