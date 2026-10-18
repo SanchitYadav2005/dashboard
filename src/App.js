@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   Activity,
   ArrowDownToLine,
@@ -34,7 +34,13 @@ import {
   Legend,
 } from "recharts";
 
-import { leads, quotations, deals, orders, payments } from "./data/mokData";
+import {
+  leads,
+  quotations,
+  deals,
+  orders,
+  payments,
+} from "./data/mockData";
 
 import {
   filterByDate,
@@ -47,7 +53,7 @@ import {
 } from "./utils/analytics";
 
 import KpiCard from "./components/KpiCard";
-import ChartPanel from "./components/ChartPlanel";
+import ChartPanel from "./components/ChartPanel";
 import FilterBar from "./components/FilterBar";
 import DataTable, { StatusBadge } from "./components/DataTable";
 import DetailModal from "./components/DetailModal";
@@ -60,15 +66,13 @@ const NAVIGATION = [
   { label: "Orders & Payments", icon: ClipboardList },
 ];
 
-const CHART_COLORS = ["#4f46e5", "#06b6d4", "#10b981", "#f59e0b", "#f43f5e"];
-
-const DATA_BY_TYPE = {
-  Lead: leads,
-  Quotation: quotations,
-  Deal: deals,
-  Order: orders,
-  Payment: payments,
-};
+const CHART_COLORS = [
+  "#4f46e5",
+  "#06b6d4",
+  "#10b981",
+  "#f59e0b",
+  "#f43f5e",
+];
 
 const MONEY = (value) => formatCurrency(value);
 
@@ -102,21 +106,31 @@ function App() {
   const [mobileMenu, setMobileMenu] = useState(false);
   const [selected, setSelected] = useState(null);
 
+  // Selected date range
   const range = useMemo(
     () => getDateRange(preset, customStart, customEnd),
-    [preset, customStart, customEnd],
+    [preset, customStart, customEnd]
   );
 
+  // Previous period for comparison
   const previousRange = useMemo(
     () => getPreviousRange(range.start, range.end),
-    [range],
+    [range.start, range.end]
   );
 
-  const filterRecords = (records, period) =>
-    filterByDate(records, period.start, period.end).filter(
-      (record) => ownerFilter === "All owners" || record.owner === ownerFilter,
-    );
+  // FIX: Memoize filterRecords so its reference remains stable
+  // until ownerFilter changes.
+  const filterRecords = useCallback(
+    (records, period) =>
+      filterByDate(records, period.start, period.end).filter(
+        (record) =>
+          ownerFilter === "All owners" ||
+          record.owner === ownerFilter
+      ),
+    [ownerFilter]
+  );
 
+  // Current-period records
   const current = useMemo(
     () => ({
       leads: filterRecords(leads, range),
@@ -125,9 +139,10 @@ function App() {
       orders: filterRecords(orders, range),
       payments: filterRecords(payments, range),
     }),
-    [range, ownerFilter],
+    [range, filterRecords]
   );
 
+  // Previous-period records
   const previous = useMemo(
     () => ({
       leads: filterRecords(leads, previousRange),
@@ -136,42 +151,63 @@ function App() {
       orders: filterRecords(orders, previousRange),
       payments: filterRecords(payments, previousRange),
     }),
-    [previousRange, ownerFilter],
+    [previousRange, filterRecords]
   );
 
   const owners = useMemo(
     () => [...new Set(leads.map((lead) => lead.owner))],
-    [],
+    []
   );
 
   const sum = (records, field) =>
-    records.reduce((total, record) => total + Number(record[field] || 0), 0);
+    records.reduce(
+      (total, record) => total + Number(record[field] || 0),
+      0
+    );
 
   const currentRevenue = sum(current.deals, "value");
   const previousRevenue = sum(previous.deals, "value");
+
   const currentCollected = sum(
-    current.payments.filter((payment) => payment.status === "Collected"),
-    "amount",
+    current.payments.filter(
+      (payment) => payment.status === "Collected"
+    ),
+    "amount"
   );
+
   const previousCollected = sum(
-    previous.payments.filter((payment) => payment.status === "Collected"),
-    "amount",
+    previous.payments.filter(
+      (payment) => payment.status === "Collected"
+    ),
+    "amount"
   );
 
   const conversionRate = current.leads.length
-    ? (current.leads.filter((lead) => lead.status === "Converted").length /
-        current.leads.length) *
-      100
+    ? (
+        (current.leads.filter(
+          (lead) => lead.status === "Converted"
+        ).length /
+          current.leads.length) *
+        100
+      )
     : 0;
 
   const previousConversion = previous.leads.length
-    ? (previous.leads.filter((lead) => lead.status === "Converted").length /
-        previous.leads.length) *
-      100
+    ? (
+        (previous.leads.filter(
+          (lead) => lead.status === "Converted"
+        ).length /
+          previous.leads.length) *
+        100
+      )
     : 0;
 
-  const outstanding = Math.max(0, currentRevenue - currentCollected);
+  const outstanding = Math.max(
+    0,
+    currentRevenue - currentCollected
+  );
 
+  // Daily chart data
   const trendData = useMemo(() => {
     const days = [];
     const start = new Date(`${range.start}T12:00:00`);
@@ -183,6 +219,7 @@ function App() {
       date.setDate(date.getDate() + 1)
     ) {
       const key = date.toISOString().slice(0, 10);
+
       const label = date.toLocaleDateString("en-IN", {
         day: "2-digit",
         month: "short",
@@ -191,34 +228,63 @@ function App() {
       days.push({
         date: key,
         day: label,
-        leads: current.leads.filter((item) => item.date === key).length,
+
+        leads: current.leads.filter(
+          (item) => item.date === key
+        ).length,
+
         revenue: current.deals
           .filter((item) => item.date === key)
-          .reduce((total, item) => total + item.value, 0),
+          .reduce(
+            (total, item) => total + Number(item.value || 0),
+            0
+          ),
+
         collections: current.payments
-          .filter((item) => item.date === key && item.status === "Collected")
-          .reduce((total, item) => total + item.amount, 0),
+          .filter(
+            (item) =>
+              item.date === key &&
+              item.status === "Collected"
+          )
+          .reduce(
+            (total, item) =>
+              total + Number(item.amount || 0),
+            0
+          ),
       });
     }
 
     return days;
-  }, [current, range]);
+  }, [current, range.start, range.end]);
 
   const leadStatusData = useMemo(() => {
-    const statuses = ["New", "Qualified", "Converted", "Unqualified"];
+    const statuses = [
+      "New",
+      "Qualified",
+      "Converted",
+      "Unqualified",
+    ];
+
     return statuses.map((status) => ({
       name: status,
-      value: current.leads.filter((lead) => lead.status === status).length,
+      value: current.leads.filter(
+        (lead) => lead.status === status
+      ).length,
     }));
-  }, [current]);
+  }, [current.leads]);
 
   const sourceData = useMemo(() => {
-    const sources = [...new Set(current.leads.map((lead) => lead.source))];
+    const sources = [
+      ...new Set(current.leads.map((lead) => lead.source)),
+    ];
+
     return sources.map((source) => ({
       name: source,
-      value: current.leads.filter((lead) => lead.source === source).length,
+      value: current.leads.filter(
+        (lead) => lead.source === source
+      ).length,
     }));
-  }, [current]);
+  }, [current.leads]);
 
   const serviceData = useMemo(() => {
     const services = [
@@ -230,112 +296,167 @@ function App() {
 
     return services.map((service) => ({
       service,
+
       revenue: sum(
-        current.deals.filter((deal) => deal.service === service),
-        "value",
+        current.deals.filter(
+          (deal) => deal.service === service
+        ),
+        "value"
       ),
+
       quotations: current.quotations.filter(
-        (quote) => quote.service === service,
+        (quote) => quote.service === service
       ).length,
     }));
-  }, [current]);
+  }, [current.deals, current.quotations]);
 
-  const priorityData = useMemo(() => {
-    return ["High", "Medium", "Low"].map((priority) => ({
-      name: priority,
-      value: current.deals.filter((deal) => deal.priority === priority).length,
-    }));
-  }, [current]);
+  const priorityData = useMemo(
+    () =>
+      ["High", "Medium", "Low"].map((priority) => ({
+        name: priority,
+        value: current.deals.filter(
+          (deal) => deal.priority === priority
+        ).length,
+      })),
+    [current.deals]
+  );
 
-  const orderStatusData = useMemo(() => {
-    return ["Completed", "In Progress", "Pending"].map((status) => ({
-      name: status,
-      value: current.orders.filter((order) => order.status === status).length,
-    }));
-  }, [current]);
+  const orderStatusData = useMemo(
+    () =>
+      ["Completed", "In Progress", "Pending"].map(
+        (status) => ({
+          name: status,
+          value: current.orders.filter(
+            (order) => order.status === status
+          ).length,
+        })
+      ),
+    [current.orders]
+  );
 
   const allRecords = useMemo(
     () => [
-      ...current.leads.map((record) => ({ ...record, recordType: "Lead" })),
+      ...current.leads.map((record) => ({
+        ...record,
+        recordType: "Lead",
+      })),
+
       ...current.quotations.map((record) => ({
         ...record,
         recordType: "Quotation",
       })),
-      ...current.deals.map((record) => ({ ...record, recordType: "Deal" })),
-      ...current.orders.map((record) => ({ ...record, recordType: "Order" })),
+
+      ...current.deals.map((record) => ({
+        ...record,
+        recordType: "Deal",
+      })),
+
+      ...current.orders.map((record) => ({
+        ...record,
+        recordType: "Order",
+      })),
+
       ...current.payments.map((record) => ({
         ...record,
         recordType: "Payment",
       })),
     ],
-    [current],
+    [current]
   );
 
   const filteredRecords = useMemo(() => {
     const query = search.trim().toLowerCase();
+
     if (!query) return allRecords;
 
     return allRecords.filter((record) =>
       Object.values(record).some((value) =>
-        String(value ?? "")
-          .toLowerCase()
-          .includes(query),
-      ),
+        String(value ?? "").toLowerCase().includes(query)
+      )
     );
   }, [allRecords, search]);
 
-  const openDetails = (type, record) => setSelected({ type, record });
+  const openDetails = (type, record) =>
+    setSelected({ type, record });
 
   const relatedRecords = (type, record) => {
     if (type === "Lead") {
       return [
         ...quotations
           .filter((item) => item.leadId === record.id)
-          .map((item) => ({ type: "Quotation", record: item })),
+          .map((item) => ({
+            type: "Quotation",
+            record: item,
+          })),
+
         ...deals
           .filter((item) => item.leadId === record.id)
-          .map((item) => ({ type: "Deal", record: item })),
+          .map((item) => ({
+            type: "Deal",
+            record: item,
+          })),
       ];
     }
 
     if (type === "Quotation") {
       return deals
         .filter((item) => item.quotationId === record.id)
-        .map((item) => ({ type: "Deal", record: item }));
+        .map((item) => ({
+          type: "Deal",
+          record: item,
+        }));
     }
 
     if (type === "Deal") {
       return [
         ...orders
           .filter((item) => item.dealId === record.id)
-          .map((item) => ({ type: "Order", record: item })),
+          .map((item) => ({
+            type: "Order",
+            record: item,
+          })),
+
         ...payments
           .filter((item) => item.dealId === record.id)
-          .map((item) => ({ type: "Payment", record: item })),
+          .map((item) => ({
+            type: "Payment",
+            record: item,
+          })),
       ];
     }
 
     if (type === "Order") {
       return payments
         .filter((item) => item.orderId === record.id)
-        .map((item) => ({ type: "Payment", record: item }));
+        .map((item) => ({
+          type: "Payment",
+          record: item,
+        }));
     }
 
     if (type === "Payment") {
       return [
         ...orders
           .filter((item) => item.id === record.orderId)
-          .map((item) => ({ type: "Order", record: item })),
+          .map((item) => ({
+            type: "Order",
+            record: item,
+          })),
+
         ...deals
           .filter((item) => item.id === record.dealId)
-          .map((item) => ({ type: "Deal", record: item })),
+          .map((item) => ({
+            type: "Deal",
+            record: item,
+          })),
       ];
     }
 
     return [];
   };
 
-  const openRelated = (type, record) => setSelected({ type, record });
+  const openRelated = (type, record) =>
+    setSelected({ type, record });
 
   const resetFilters = () => {
     setPreset("30");
@@ -350,16 +471,16 @@ function App() {
       activeTab === "Leads"
         ? current.leads
         : activeTab === "Quotations"
-          ? current.quotations
-          : activeTab === "Deals & Revenue"
-            ? current.deals
-            : activeTab === "Orders & Payments"
-              ? [...current.orders, ...current.payments]
-              : allRecords;
+        ? current.quotations
+        : activeTab === "Deals & Revenue"
+        ? current.deals
+        : activeTab === "Orders & Payments"
+        ? [...current.orders, ...current.payments]
+        : allRecords;
 
     downloadCSV(
       exportRecords,
-      `${activeTab.toLowerCase().replaceAll(" ", "-")}.csv`,
+      `${activeTab.toLowerCase().replaceAll(" ", "-")}.csv`
     );
   };
 
@@ -379,6 +500,7 @@ function App() {
       },
       { key: "owner", label: "Owner" },
     ],
+
     Quotations: [
       { key: "id", label: "Quote ID" },
       { key: "client", label: "Client" },
@@ -395,6 +517,7 @@ function App() {
       },
       { key: "date", label: "Date" },
     ],
+
     "Deals & Revenue": [
       { key: "id", label: "Deal ID" },
       { key: "client", label: "Client" },
@@ -412,6 +535,7 @@ function App() {
       },
       { key: "date", label: "Date" },
     ],
+
     "Orders & Payments": [
       { key: "id", label: "Order ID" },
       { key: "client", label: "Client" },
@@ -434,13 +558,6 @@ function App() {
     ],
   };
 
-  const recordsForTab = {
-    Leads: current.leads,
-    Quotations: current.quotations,
-    "Deals & Revenue": current.deals,
-    "Orders & Payments": current.orders,
-  };
-
   const currentTabColumns = columnsByTab[activeTab];
 
   const paymentColumns = [
@@ -448,7 +565,11 @@ function App() {
     { key: "client", label: "Client" },
     { key: "orderId", label: "Order ID" },
     { key: "method", label: "Method" },
-    { key: "amount", label: "Amount", render: (value) => MONEY(value) },
+    {
+      key: "amount",
+      label: "Amount",
+      render: (value) => MONEY(value),
+    },
     {
       key: "status",
       label: "Status",
@@ -483,10 +604,16 @@ function App() {
             <div className="rounded-xl bg-indigo-600 p-2.5 text-white">
               <ChartNoAxesCombined size={22} />
             </div>
+
             <div>
-              <h1 className="font-bold text-slate-900">InsightFlow</h1>
-              <p className="text-xs text-slate-500">Business Analytics</p>
+              <h1 className="font-bold text-slate-900">
+                InsightFlow
+              </h1>
+              <p className="text-xs text-slate-500">
+                Business Analytics
+              </p>
             </div>
+
             <button
               className="ml-auto rounded-lg p-2 text-slate-500 hover:bg-slate-100 lg:hidden"
               onClick={() => setMobileMenu(false)}
@@ -500,10 +627,12 @@ function App() {
             <p className="mb-3 px-3 text-[11px] font-bold uppercase tracking-widest text-slate-400">
               Workspace
             </p>
+
             <nav className="space-y-1">
               {NAVIGATION.map((item) => {
                 const Icon = item.icon;
                 const active = activeTab === item.label;
+
                 return (
                   <button
                     key={item.label}
@@ -519,7 +648,12 @@ function App() {
                   >
                     <Icon size={18} />
                     {item.label}
-                    {active && <ChevronRight size={15} className="ml-auto" />}
+                    {active && (
+                      <ChevronRight
+                        size={15}
+                        className="ml-auto"
+                      />
+                    )}
                   </button>
                 );
               })}
@@ -529,12 +663,19 @@ function App() {
           <div className="mt-auto p-4">
             <div className="rounded-2xl bg-slate-900 p-4 text-white">
               <div className="flex items-center gap-2">
-                <Activity size={17} className="text-indigo-300" />
-                <span className="text-sm font-semibold">Demo workspace</span>
+                <Activity
+                  size={17}
+                  className="text-indigo-300"
+                />
+                <span className="text-sm font-semibold">
+                  Demo workspace
+                </span>
               </div>
+
               <p className="mt-2 text-xs leading-5 text-slate-300">
                 Sample business records for dashboard evaluation.
               </p>
+
               <div className="mt-3 rounded-lg bg-white/10 px-3 py-2 text-xs text-slate-200">
                 Local demo · No backend
               </div>
@@ -553,6 +694,7 @@ function App() {
                 >
                   <Menu size={21} />
                 </button>
+
                 <div className="min-w-0">
                   <p className="text-xs text-slate-500">
                     Workspace / Analytics
@@ -569,14 +711,18 @@ function App() {
                     size={16}
                     className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
                   />
+
                   <input
                     value={search}
-                    onChange={(event) => setSearch(event.target.value)}
+                    onChange={(event) =>
+                      setSearch(event.target.value)
+                    }
                     placeholder="Search records..."
                     aria-label="Search all records"
                     className="w-44 rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm outline-none transition focus:border-indigo-400 focus:bg-white"
                   />
                 </div>
+
                 <div className="flex items-center gap-2 border-l border-slate-200 pl-4">
                   <div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">
                     AD
@@ -585,7 +731,9 @@ function App() {
                     <p className="text-sm font-semibold text-slate-800">
                       Admin
                     </p>
-                    <p className="text-xs text-slate-500">Administrator</p>
+                    <p className="text-xs text-slate-500">
+                      Administrator
+                    </p>
                   </div>
                 </div>
               </div>
@@ -595,7 +743,9 @@ function App() {
           <div className="space-y-6 p-4 sm:p-6 lg:p-8">
             <SectionHeading
               title={
-                activeTab === "Overview" ? "Business performance" : activeTab
+                activeTab === "Overview"
+                  ? "Business performance"
+                  : activeTab
               }
               description="Track leads, quotations, deals, orders and collections in one place."
             >
@@ -618,14 +768,19 @@ function App() {
 
             <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
               <p>Selected period: {dateLabel}</p>
+
               <label className="flex items-center gap-2">
                 <span>Owner</span>
+
                 <select
                   value={ownerFilter}
-                  onChange={(event) => setOwnerFilter(event.target.value)}
+                  onChange={(event) =>
+                    setOwnerFilter(event.target.value)
+                  }
                   className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-400"
                 >
                   <option>All owners</option>
+
                   {owners.map((owner) => (
                     <option key={owner}>{owner}</option>
                   ))}
@@ -641,58 +796,75 @@ function App() {
                     value={formatNumber(current.leads.length)}
                     change={percentChange(
                       current.leads.length,
-                      previous.leads.length,
+                      previous.leads.length
                     )}
                     icon={Users}
                     color="indigo"
                   />
+
                   <KpiCard
                     title="Qualified leads"
                     value={formatNumber(
-                      current.leads.filter((l) => l.status === "Qualified")
-                        .length,
+                      current.leads.filter(
+                        (lead) => lead.status === "Qualified"
+                      ).length
                     )}
                     change={percentChange(
-                      current.leads.filter((l) => l.status === "Qualified")
-                        .length,
-                      previous.leads.filter((l) => l.status === "Qualified")
-                        .length,
+                      current.leads.filter(
+                        (lead) => lead.status === "Qualified"
+                      ).length,
+                      previous.leads.filter(
+                        (lead) => lead.status === "Qualified"
+                      ).length
                     )}
                     icon={Target}
                     color="blue"
                   />
+
                   <KpiCard
                     title="Conversion rate"
                     value={`${conversionRate.toFixed(1)}%`}
-                    change={Math.round(conversionRate - previousConversion)}
+                    change={Math.round(
+                      conversionRate - previousConversion
+                    )}
                     subtitle="Change in percentage points"
                     icon={CheckCircle2}
                     color="emerald"
                   />
+
                   <KpiCard
                     title="Quotation value"
                     value={MONEY(sum(current.quotations, "value"))}
                     change={percentChange(
                       sum(current.quotations, "value"),
-                      sum(previous.quotations, "value"),
+                      sum(previous.quotations, "value")
                     )}
                     icon={FileText}
                     color="violet"
                   />
+
                   <KpiCard
                     title="Deal value"
                     value={MONEY(currentRevenue)}
-                    change={percentChange(currentRevenue, previousRevenue)}
+                    change={percentChange(
+                      currentRevenue,
+                      previousRevenue
+                    )}
                     icon={BriefcaseBusiness}
                     color="emerald"
                   />
+
                   <KpiCard
                     title="Collected payments"
                     value={MONEY(currentCollected)}
-                    change={percentChange(currentCollected, previousCollected)}
+                    change={percentChange(
+                      currentCollected,
+                      previousCollected
+                    )}
                     icon={CreditCard}
                     color="blue"
                   />
+
                   <KpiCard
                     title="Outstanding estimate"
                     value={MONEY(outstanding)}
@@ -700,12 +872,13 @@ function App() {
                     icon={CircleDollarSign}
                     color="amber"
                   />
+
                   <KpiCard
                     title="Orders"
                     value={formatNumber(current.orders.length)}
                     change={percentChange(
                       current.orders.length,
-                      previous.orders.length,
+                      previous.orders.length
                     )}
                     icon={ClipboardList}
                     color="rose"
@@ -719,10 +892,18 @@ function App() {
                       subtitle="Revenue from deals compared with collected payments"
                     >
                       {trendData.length ? (
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer
+                          width="100%"
+                          height="100%"
+                        >
                           <LineChart
                             data={trendData}
-                            margin={{ top: 8, right: 8, left: 8, bottom: 0 }}
+                            margin={{
+                              top: 8,
+                              right: 8,
+                              left: 8,
+                              bottom: 0,
+                            }}
                           >
                             <CartesianGrid
                               stroke="#e2e8f0"
@@ -740,7 +921,9 @@ function App() {
                               tick={{ fontSize: 11 }}
                               axisLine={false}
                               tickLine={false}
-                              tickFormatter={(v) => `${Math.round(v / 1000)}k`}
+                              tickFormatter={(value) =>
+                                `${Math.round(value / 1000)}k`
+                              }
                             />
                             <Tooltip
                               formatter={(value) => MONEY(value)}
@@ -778,7 +961,10 @@ function App() {
                     subtitle="Where your leads originate"
                   >
                     {sourceData.length ? (
-                      <ResponsiveContainer width="100%" height="100%">
+                      <ResponsiveContainer
+                        width="100%"
+                        height="100%"
+                      >
                         <PieChart>
                           <Pie
                             data={sourceData}
@@ -791,12 +977,19 @@ function App() {
                             {sourceData.map((item, index) => (
                               <Cell
                                 key={item.name}
-                                fill={CHART_COLORS[index % CHART_COLORS.length]}
+                                fill={
+                                  CHART_COLORS[
+                                    index % CHART_COLORS.length
+                                  ]
+                                }
                               />
                             ))}
                           </Pie>
                           <Tooltip contentStyle={tooltipStyle} />
-                          <Legend verticalAlign="bottom" height={38} />
+                          <Legend
+                            verticalAlign="bottom"
+                            height={38}
+                          />
                         </PieChart>
                       </ResponsiveContainer>
                     ) : (
@@ -810,8 +1003,13 @@ function App() {
                     title="Lead status funnel"
                     subtitle="Current lead distribution"
                   >
-                    {leadStatusData.some((item) => item.value > 0) ? (
-                      <ResponsiveContainer width="100%" height="100%">
+                    {leadStatusData.some(
+                      (item) => item.value > 0
+                    ) ? (
+                      <ResponsiveContainer
+                        width="100%"
+                        height="100%"
+                      >
                         <BarChart
                           data={leadStatusData}
                           layout="vertical"
@@ -862,10 +1060,18 @@ function App() {
                     subtitle="Deal value across service lines"
                   >
                     {serviceData.length ? (
-                      <ResponsiveContainer width="100%" height="100%">
+                      <ResponsiveContainer
+                        width="100%"
+                        height="100%"
+                      >
                         <BarChart
                           data={serviceData}
-                          margin={{ top: 8, right: 8, left: 8, bottom: 28 }}
+                          margin={{
+                            top: 8,
+                            right: 8,
+                            left: 8,
+                            bottom: 28,
+                          }}
                         >
                           <CartesianGrid
                             stroke="#e2e8f0"
@@ -886,7 +1092,9 @@ function App() {
                             tick={{ fontSize: 11 }}
                             axisLine={false}
                             tickLine={false}
-                            tickFormatter={(v) => `${Math.round(v / 1000)}k`}
+                            tickFormatter={(value) =>
+                              `${Math.round(value / 1000)}k`
+                            }
                           />
                           <Tooltip
                             formatter={(value) => MONEY(value)}
@@ -909,10 +1117,14 @@ function App() {
                 <DataTable
                   title="Recent leads"
                   records={[...current.leads]
-                    .sort((a, b) => b.date.localeCompare(a.date))
+                    .sort((a, b) =>
+                      b.date.localeCompare(a.date)
+                    )
                     .slice(0, 6)}
                   columns={columnsByTab.Leads}
-                  onView={(record) => openDetails("Lead", record)}
+                  onView={(record) =>
+                    openDetails("Lead", record)
+                  }
                 />
               </>
             )}
@@ -927,19 +1139,17 @@ function App() {
                   />
                   <KpiCard
                     title="Qualified"
-                    value={
-                      current.leads.filter((l) => l.status === "Qualified")
-                        .length
-                    }
+                    value={current.leads.filter(
+                      (lead) => lead.status === "Qualified"
+                    ).length}
                     icon={Target}
                     color="blue"
                   />
                   <KpiCard
                     title="Unqualified"
-                    value={
-                      current.leads.filter((l) => l.status === "Unqualified")
-                        .length
-                    }
+                    value={current.leads.filter(
+                      (lead) => lead.status === "Unqualified"
+                    ).length}
                     icon={X}
                     color="rose"
                   />
@@ -950,15 +1160,24 @@ function App() {
                     title="Leads by source"
                     subtitle="Lead acquisition channel"
                   >
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer
+                      width="100%"
+                      height="100%"
+                    >
                       <BarChart data={sourceData}>
                         <CartesianGrid
                           stroke="#e2e8f0"
                           strokeDasharray="3 3"
                           vertical={false}
                         />
-                        <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                        <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                        <XAxis
+                          dataKey="name"
+                          tick={{ fontSize: 12 }}
+                        />
+                        <YAxis
+                          allowDecimals={false}
+                          tick={{ fontSize: 11 }}
+                        />
                         <Tooltip contentStyle={tooltipStyle} />
                         <Bar
                           dataKey="value"
@@ -969,11 +1188,15 @@ function App() {
                       </BarChart>
                     </ResponsiveContainer>
                   </ChartPanel>
+
                   <ChartPanel
                     title="Daily lead activity"
                     subtitle="New leads by date"
                   >
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer
+                      width="100%"
+                      height="100%"
+                    >
                       <LineChart data={trendData}>
                         <CartesianGrid
                           stroke="#e2e8f0"
@@ -985,7 +1208,10 @@ function App() {
                           tick={{ fontSize: 11 }}
                           minTickGap={20}
                         />
-                        <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                        <YAxis
+                          allowDecimals={false}
+                          tick={{ fontSize: 11 }}
+                        />
                         <Tooltip contentStyle={tooltipStyle} />
                         <Line
                           type="monotone"
@@ -1004,7 +1230,9 @@ function App() {
                   title="Lead register"
                   records={current.leads}
                   columns={columnsByTab.Leads}
-                  onView={(record) => openDetails("Lead", record)}
+                  onView={(record) =>
+                    openDetails("Lead", record)
+                  }
                 />
               </>
             )}
@@ -1019,16 +1247,17 @@ function App() {
                   />
                   <KpiCard
                     title="Quotation value"
-                    value={MONEY(sum(current.quotations, "value"))}
+                    value={MONEY(
+                      sum(current.quotations, "value")
+                    )}
                     icon={CircleDollarSign}
                     color="emerald"
                   />
                   <KpiCard
                     title="Accepted quotations"
-                    value={
-                      current.quotations.filter((q) => q.status === "Accepted")
-                        .length
-                    }
+                    value={current.quotations.filter(
+                      (quote) => quote.status === "Accepted"
+                    ).length}
                     icon={CheckCircle2}
                     color="blue"
                   />
@@ -1038,16 +1267,24 @@ function App() {
                   title="Quotation value by service"
                   subtitle="Total value of quotations issued"
                 >
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer
+                    width="100%"
+                    height="100%"
+                  >
                     <BarChart data={serviceData}>
                       <CartesianGrid
                         stroke="#e2e8f0"
                         strokeDasharray="3 3"
                         vertical={false}
                       />
-                      <XAxis dataKey="service" tick={{ fontSize: 11 }} />
+                      <XAxis
+                        dataKey="service"
+                        tick={{ fontSize: 11 }}
+                      />
                       <YAxis
-                        tickFormatter={(v) => `${Math.round(v / 1000)}k`}
+                        tickFormatter={(value) =>
+                          `${Math.round(value / 1000)}k`
+                        }
                         tick={{ fontSize: 11 }}
                       />
                       <Tooltip
@@ -1074,7 +1311,9 @@ function App() {
                   title="Quotation register"
                   records={current.quotations}
                   columns={columnsByTab.Quotations}
-                  onView={(record) => openDetails("Quotation", record)}
+                  onView={(record) =>
+                    openDetails("Quotation", record)
+                  }
                 />
               </>
             )}
@@ -1095,17 +1334,17 @@ function App() {
                   />
                   <KpiCard
                     title="Won deals"
-                    value={
-                      current.deals.filter((d) => d.status === "Won").length
-                    }
+                    value={current.deals.filter(
+                      (deal) => deal.status === "Won"
+                    ).length}
                     icon={CheckCircle2}
                     color="blue"
                   />
                   <KpiCard
                     title="High priority"
-                    value={
-                      current.deals.filter((d) => d.priority === "High").length
-                    }
+                    value={current.deals.filter(
+                      (deal) => deal.priority === "High"
+                    ).length}
                     icon={Target}
                     color="rose"
                   />
@@ -1116,16 +1355,24 @@ function App() {
                     title="Revenue by service"
                     subtitle="Deal value for selected period"
                   >
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer
+                      width="100%"
+                      height="100%"
+                    >
                       <BarChart data={serviceData}>
                         <CartesianGrid
                           stroke="#e2e8f0"
                           strokeDasharray="3 3"
                           vertical={false}
                         />
-                        <XAxis dataKey="service" tick={{ fontSize: 10 }} />
+                        <XAxis
+                          dataKey="service"
+                          tick={{ fontSize: 10 }}
+                        />
                         <YAxis
-                          tickFormatter={(v) => `${Math.round(v / 1000)}k`}
+                          tickFormatter={(value) =>
+                            `${Math.round(value / 1000)}k`
+                          }
                           tick={{ fontSize: 11 }}
                         />
                         <Tooltip
@@ -1141,11 +1388,15 @@ function App() {
                       </BarChart>
                     </ResponsiveContainer>
                   </ChartPanel>
+
                   <ChartPanel
                     title="Deal priority"
                     subtitle="Deals grouped by priority"
                   >
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer
+                      width="100%"
+                      height="100%"
+                    >
                       <PieChart>
                         <Pie
                           data={priorityData}
@@ -1155,7 +1406,10 @@ function App() {
                           label
                         >
                           {priorityData.map((item, index) => (
-                            <Cell key={item.name} fill={CHART_COLORS[index]} />
+                            <Cell
+                              key={item.name}
+                              fill={CHART_COLORS[index]}
+                            />
                           ))}
                         </Pie>
                         <Tooltip contentStyle={tooltipStyle} />
@@ -1169,7 +1423,9 @@ function App() {
                   title="Deal register"
                   records={current.deals}
                   columns={columnsByTab["Deals & Revenue"]}
-                  onView={(record) => openDetails("Deal", record)}
+                  onView={(record) =>
+                    openDetails("Deal", record)
+                  }
                 />
               </>
             )}
@@ -1198,9 +1454,12 @@ function App() {
                     title="Pending payments"
                     value={MONEY(
                       sum(
-                        current.payments.filter((p) => p.status === "Pending"),
-                        "amount",
-                      ),
+                        current.payments.filter(
+                          (payment) =>
+                            payment.status === "Pending"
+                        ),
+                        "amount"
+                      )
                     )}
                     icon={ArrowDownToLine}
                     color="amber"
@@ -1212,15 +1471,24 @@ function App() {
                     title="Order progress"
                     subtitle="Orders by completion status"
                   >
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer
+                      width="100%"
+                      height="100%"
+                    >
                       <BarChart data={orderStatusData}>
                         <CartesianGrid
                           stroke="#e2e8f0"
                           strokeDasharray="3 3"
                           vertical={false}
                         />
-                        <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                        <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                        <XAxis
+                          dataKey="name"
+                          tick={{ fontSize: 11 }}
+                        />
+                        <YAxis
+                          allowDecimals={false}
+                          tick={{ fontSize: 11 }}
+                        />
                         <Tooltip contentStyle={tooltipStyle} />
                         <Bar
                           dataKey="value"
@@ -1231,11 +1499,15 @@ function App() {
                       </BarChart>
                     </ResponsiveContainer>
                   </ChartPanel>
+
                   <ChartPanel
                     title="Daily collections"
                     subtitle="Successful payments by date"
                   >
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer
+                      width="100%"
+                      height="100%"
+                    >
                       <LineChart data={trendData}>
                         <CartesianGrid
                           stroke="#e2e8f0"
@@ -1248,7 +1520,9 @@ function App() {
                           minTickGap={20}
                         />
                         <YAxis
-                          tickFormatter={(v) => `${Math.round(v / 1000)}k`}
+                          tickFormatter={(value) =>
+                            `${Math.round(value / 1000)}k`
+                          }
                           tick={{ fontSize: 11 }}
                         />
                         <Tooltip
@@ -1272,21 +1546,29 @@ function App() {
                   title="Order register"
                   records={current.orders}
                   columns={columnsByTab["Orders & Payments"]}
-                  onView={(record) => openDetails("Order", record)}
+                  onView={(record) =>
+                    openDetails("Order", record)
+                  }
                 />
 
                 <DataTable
                   title="Payment history"
                   records={current.payments}
                   columns={paymentColumns}
-                  onView={(record) => openDetails("Payment", record)}
+                  onView={(record) =>
+                    openDetails("Payment", record)
+                  }
                 />
               </>
             )}
 
             <footer className="flex flex-col justify-between gap-2 border-t border-slate-200 pt-5 text-xs text-slate-500 sm:flex-row">
-              <p>InsightFlow · Business Performance Analytics</p>
-              <p>Demonstration data only · No backend connected</p>
+              <p>
+                InsightFlow · Business Performance Analytics
+              </p>
+              <p>
+                Demonstration data only · No backend connected
+              </p>
             </footer>
           </div>
         </main>
@@ -1296,7 +1578,10 @@ function App() {
         <DetailModal
           type={selected.type}
           record={selected.record}
-          related={relatedRecords(selected.type, selected.record)}
+          related={relatedRecords(
+            selected.type,
+            selected.record
+          )}
           onClose={() => setSelected(null)}
           onRelated={openRelated}
         />
