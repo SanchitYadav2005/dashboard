@@ -40,7 +40,7 @@ import {
   deals,
   orders,
   payments,
-} from "./data/mockData";
+} from "./data/mokData";
 
 import {
   filterByDate,
